@@ -112,7 +112,7 @@ class FeedGenerator
   end
 
   def generate(feed_document)
-    urls = feed_document.xpath('/rss/channel/item/link').map { |node| node.text }
+    urls = feed_document.xpath('/rss/channel/item/link').uniq.map { |node| node.text }
     threads = urls.map { |url|
       Thread.start {
         @page_cache.get(url)
