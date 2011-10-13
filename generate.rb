@@ -69,8 +69,8 @@ class PageCache
         client.receive_timeout = 30
 
         response = client.get(url)
-      rescue SocketError
-        # Ignore
+      rescue SocketError => e
+        $stderr.puts "Error fetching URL <#{url}>: #{e.class}: #{e}"
       else
         if response.status == 200
           content = response.body
@@ -126,7 +126,7 @@ class FeedGenerator
         end
       end
     rescue Timeout::Error
-      $stderr << "Timeout waiting for all items to be fetched."
+      $stderr.puts "Timeout waiting for all items to be fetched."
     end
 
     xml = Builder::XmlMarkup.new(:target => @output)
