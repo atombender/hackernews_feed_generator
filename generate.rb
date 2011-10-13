@@ -55,12 +55,17 @@ class PageCache
       content = File.read(file_name)
     else
       $stderr.puts " [fetch] #{url}"
-      response = HTTPClient.new.get(url)
-      if response.status == 200
-        content = response.body
-        temp_file_name = "#{file_name}.new"
-        File.open(temp_file_name, "w") { |f| f << content }
-        FileUtils.mv(temp_file_name, file_name)
+      begin
+        response = HTTPClient.new.get(url)
+      rescue SocketError
+        # Ignore
+      else
+        if response.status == 200
+          content = response.body
+          temp_file_name = "#{file_name}.new"
+          File.open(temp_file_name, "w") { |f| f << content }
+          FileUtils.mv(temp_file_name, file_name)
+        end
       end
     end
     return content
@@ -78,7 +83,12 @@ class PageCleaner
     path = URI.parse(url).path
 
     document = Nokogiri::HTML(content)
-    return Readability::Document.new(document, base_uri, path).content
+    begin
+      return Readability::Document.new(document, base_uri, path).content
+    rescue Exception => e
+      $stderr.puts "Exception processing document: #{e.class}: #{e}"
+      nil
+    end
   end
 end
 
