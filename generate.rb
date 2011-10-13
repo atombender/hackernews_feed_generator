@@ -156,13 +156,13 @@ class FeedGenerator
           xml.id guid
           xml.updated Time.now.xmlschema  # TODO
           xml.content :type => :html do
-            body = ''
+            body = '<div>'
             if content
               body << content
             else
               body << "<p><em>[Failed to fetch page]</em></p>"
             end
-            body << "<hr/><p><a href='#{comments_url}'>[Hacker News discussion]</a></p>"
+            body << "<hr/><p><a href='#{comments_url}'>[Hacker News discussion]</a></p></div>"
             xml.text! body
           end
         end
