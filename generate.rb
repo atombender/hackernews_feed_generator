@@ -209,8 +209,10 @@ class Controller
           $stdout << tempfile.read
         else
           tempfile.close
+          original_mask = File.stat(@output_path).mode rescue nil
           FileUtils.rm_f(@output_path)
           FileUtils.mv(tempfile.path, @output_path)
+          FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
         end
       end
     end
