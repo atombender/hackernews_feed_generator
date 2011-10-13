@@ -23,6 +23,10 @@ require 'time'
 require 'fileutils'
 require 'readability'
 
+APP_VERSION = "0.1".freeze
+
+USER_AGENT = "hackernews_feed_generator/#{APP_VERSION} (https://github.com/alexstaubo/hackernews_feed_generator)".freeze
+
 class FeedParser
   def initialize(url)
     @url =url
@@ -58,7 +62,13 @@ class PageCache
     else
       $stderr.puts " [fetch] #{url}"
       begin
-        response = HTTPClient.new.get(url)
+        client = HTTPClient.new(nil, USER_AGENT)
+        client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
+        client.connect_timeout = 10
+        client.send_timeout = 30
+        client.receive_timeout = 30
+
+        response = client.get(url)
       rescue SocketError
         # Ignore
       else
