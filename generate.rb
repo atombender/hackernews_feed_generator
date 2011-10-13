@@ -12,6 +12,7 @@ else
   Bundler.setup
 end
 
+require 'timeout'
 require 'tempfile'
 require 'base64'
 require 'httpclient'
@@ -48,6 +49,7 @@ class PageCache
   end
 
   def get(url, &block)
+    content = nil
     file_name = File.join(@directory,
       Base64.encode64(url).gsub(/[=?\/\n]/, '').strip)
     if File.exist?(file_name)
@@ -102,11 +104,19 @@ class FeedGenerator
   def generate(feed_document)
     urls = feed_document.xpath('/rss/channel/item/link').map { |node| node.text }
     threads = urls.map { |url|
-      Thread.start { @page_cache.get(url) }
+      Thread.start {
+        @page_cache.get(url)
+      }
     }
-    while threads.any?
-      threads.delete_if { |t| !t.alive? }
-      sleep(0.1)
+    begin
+      Timeout.timeout(60 * 2) do
+        while threads.any?
+          threads.delete_if { |t| !t.alive? }
+          sleep(0.1)
+        end
+      end
+    rescue Timeout::Error
+      $stderr << "Timeout waiting for all items to be fetched."
     end
 
     xml = Builder::XmlMarkup.new(:target => @output)
@@ -197,5 +207,7 @@ class Controller
 end
 
 $stdout.sync = $stderr.sync = true
+
+Thread.abort_on_exception = false
 
 Controller.new.run!(ARGV)
