@@ -1,0 +1,16 @@
+GEM
+  remote: http://rubygems.org/
+  specs:
+    builder (2.1.2)
+    busk-ruby-readability (1.3)
+    httpclient (2.2.1)
+    nokogiri (1.5.0)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  builder (~> 2.1.2)
+  busk-ruby-readability (~> 1.3)
+  httpclient (~> 2.2.1)
+  nokogiri (~> 1.5.0)
