@@ -69,8 +69,9 @@ class PageCache
         client.receive_timeout = 30
 
         response = client.get(url)
-      rescue SocketError => e
+      rescue Exception => e
         $stderr.puts "Error fetching URL <#{url}>: #{e.class}: #{e}"
+        File.open(file_name, "w") { |f| f << '' }
       else
         if response.status == 200
           content = response.body
