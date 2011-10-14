@@ -212,7 +212,7 @@ class FeedGenerator
             else
               body << "<p><em>[Failed to fetch page]</em></p>"
             end
-            body << "<hr/><p><a href='#{item[:comments_url]}'>[Hacker News discussion]</a></p></div>"
+            body << "<hr/><p><a href=\"#{item[:comments_url]}\">[Hacker News discussion]</a></p></div>"
             xml.text! body
           end
         end
