@@ -149,7 +149,7 @@ class Feed
       uri = URI.parse(item_url) rescue nil
       if uri
         domain = uri.host
-        domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.])$/
+        domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.]+)$/
         item[:title] << " [#{domain}]" if domain
       end
 
