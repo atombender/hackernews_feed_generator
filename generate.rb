@@ -105,6 +105,68 @@ class PageCleaner
   end
 end
 
+class Feed
+  def initialize(path, page_cache)
+    @path = path
+    @page_cache = page_cache
+    @items = []
+    load
+  end
+
+  def load
+    @items = []
+    if File.exist?(@path)
+      @items.concat(YAML.load(File.open(@path)))
+      garbage_collect
+    end
+  end
+
+  def save
+    File.open(@path, 'w') { |f| f << YAML.dump(@items) }
+  end
+
+  def garbage_collect
+    @items.delete_if { |item| Time.parse(item[:updated_at]) < Time.now - 86400 }
+  end
+
+  def add_items_from_document(document)
+    document.xpath('/rss/channel/item').each do |item_element|
+      item_url = item_element.xpath('link').text
+      comments_url = item_element.xpath('comments').text
+
+      id = $1 if comments_url =~ /id=(\d+)/
+      id ||= comments_url
+      id = "hackernews:#{id}"
+
+      item = @items.select { |item| item[:id] == id }[0]
+      unless item
+        item = {}
+        @items << item
+      end
+      
+      item[:title] = item_element.xpath('title').text
+
+      uri = URI.parse(item_url) rescue nil
+      if uri
+        domain = uri.host
+        domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.])$/
+        item[:title] << " [#{domain}]" if domain
+      end
+
+      item[:comments_url] = comments_url
+      item[:url] = item_url
+      item[:id] = id
+      item[:updated_at] = Time.now.xmlschema  # TODO: Read from page
+
+      content = @page_cache.get(item_url)
+      content &&= PageCleaner.new.process(item_url, content)
+      item[:content] = content
+    end
+  end
+
+  attr_reader :items
+end
+
 class FeedGenerator
   def initialize(url, output, page_cache)
     @url = url
@@ -112,8 +174,9 @@ class FeedGenerator
     @page_cache = page_cache
   end
 
-  def generate(feed_document)
-    urls = feed_document.xpath('/rss/channel/item/link').to_a.uniq.map { |node| node.text }
+  def generate(feed)
+    urls = feed.items.map { |item| item[:url] }.uniq
+    
     threads = urls.map { |url|
       Thread.start {
         @page_cache.get(url)
@@ -136,33 +199,20 @@ class FeedGenerator
       xml.title 'Hacker News'
       xml.link :rel => :self, :href => @url
       xml.link :rel => :alternate, :href => 'http://news.ycombinator.com/'
-
-      feed_document.xpath('/rss/channel/item').each do |item_element|
+      feed.items.each do |item|
         xml.entry do
-          comments_url = item_element.xpath('comments')
-          item_url = item_element.xpath('link').text
-
-          guid = "hackernews:"
-          guid << $1 if comments_url =~ /id=(\d+)/
-
-          title = item_element.xpath('title').text
-          title << " [#{URI.parse(item_url).host}]" rescue ''
-
-          content = @page_cache.get(item_url)
-          content &&= PageCleaner.new.process(item_url, content)
-
-          xml.title title
-          xml.link :rel => :alternate, :href => item_url, :type => "text/html"
-          xml.id guid
-          xml.updated Time.now.xmlschema  # TODO
+          xml.title item[:title]
+          xml.link :rel => :alternate, :href => item[:url], :type => "text/html"
+          xml.id item[:id]
+          xml.updated item[:updated_at]
           xml.content :type => :html do
             body = '<div>'
-            if content
-              body << content
+            if item[:content]
+              body << item[:content]
             else
               body << "<p><em>[Failed to fetch page]</em></p>"
             end
-            body << "<hr/><p><a href='#{comments_url}'>[Hacker News discussion]</a></p></div>"
+            body << "<hr/><p><a href='#{item[:comments_url]}'>[Hacker News discussion]</a></p></div>"
             xml.text! body
           end
         end
@@ -186,8 +236,8 @@ class Controller
       opts.on("-o FILE", "--output FILE", "Write feed to this file.") do |file_name|
         @output_path = file_name
       end
-      opts.on("--cache-directory DIR", "Store fetched pages in DIR.") do |path|
-        @page_cache = PageCache.new(path)
+      opts.on("--cache-directory DIR", "Store fetched pages and items in DIR.") do |path|
+        @cache_path = path
       end
       opts.on("-h", "--help", "Show this help message.") do
         puts opts
@@ -198,12 +248,18 @@ class Controller
     if argv.empty?
       abort "No URLs specified."
     end
-    @page_cache ||= PageCache.new("#{ENV['TMP'] || '/tmp'}/hnfeed.cache")
+    @cache_path ||= File.join(ENV['TMP'] || '/tmp', 'hnfeed.cache')
+    @page_cache = PageCache.new(@cache_path)
     argv.each do |url|
-      document = FeedParser.new(url).parse
+      parser = FeedParser.new(url)
+
+      feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
+      feed.add_items_from_document(parser.parse)
+      feed.save
+
       Tempfile.open("feed") do |tempfile|
         generator = FeedGenerator.new(url, tempfile, @page_cache)
-        generator.generate(document)
+        generator.generate(feed)
         if @output_path == '-'
           tempfile.seek(0)
           $stdout << tempfile.read
