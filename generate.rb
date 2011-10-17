@@ -14,7 +14,7 @@ end
 
 require 'timeout'
 require 'tempfile'
-require 'base64'
+require 'digest/sha1'
 require 'httpclient'
 require 'optparse'
 require 'nokogiri'
@@ -54,8 +54,7 @@ class PageCache
 
   def get(url, &block)
     content = nil
-    file_name = File.join(@directory,
-      Base64.encode64(url).gsub(/[=?\/\n]/, '').strip)
+    file_name = File.join(@directory, Digest::SHA1.hexdigest(url))
     if File.exist?(file_name)
       $stderr.puts "[cached] #{url}"
       content = File.read(file_name)
