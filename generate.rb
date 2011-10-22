@@ -89,10 +89,14 @@ class PageCleaner
   end
 
   def process(url, content)
-    base_uri = URI.parse(url)
-    base_uri.path = '/'
-
-    path = URI.parse(url).path
+    begin
+      base_uri = URI.parse(url)
+      base_uri.path = '/'
+      path = URI.parse(url).path
+    rescue URI::InvalidURIError
+      base_uri = url
+      path = '/'
+    end
 
     document = Nokogiri::HTML(content)
     begin
