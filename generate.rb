@@ -97,9 +97,8 @@ class PageCleaner
       base_uri = url
       path = '/'
     end
-
-    document = Nokogiri::HTML(content)
     begin
+      document = Nokogiri::HTML(content)
       return Readability::Document.new(document, base_uri, path).content
     rescue Exception => e
       $stderr.puts "Exception processing document: #{e.class}: #{e}"
