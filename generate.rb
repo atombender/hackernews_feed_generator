@@ -141,7 +141,7 @@ class Feed
 
       id = $1 if comments_url =~ /id=(\d+)/
       id ||= comments_url
-      id = "hackernews:#{id}"
+      id = "tag,hackernews:#{id}"
 
       item = @items.select { |item| item[:id] == id }[0]
       unless item
