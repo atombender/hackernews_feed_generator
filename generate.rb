@@ -121,6 +121,7 @@ class Feed
       @items.concat(YAML.load(File.open(@path)))
       garbage_collect
     end
+    @changed = false
   end
 
   def save
@@ -143,27 +144,32 @@ class Feed
       item = @items.select { |item| item[:id] == id }[0]
       unless item
         item = {}
+        item[:title] = item_element.xpath('title').text
+
+        uri = URI.parse(item_url) rescue nil
+        if uri
+          domain = uri.host
+          domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.]+)$/
+          item[:title] << " [#{domain}]" if domain
+        end
+
+        item[:comments_url] = comments_url
+        item[:url] = item_url
+        item[:id] = id
+        item[:updated_at] ||= Time.now.xmlschema  # TODO: Read from page
+
+        content = @page_cache.get(item_url)
+        content &&= PageCleaner.new.process(item_url, content)
+        item[:content] = content
         @items << item
+
+        @changed = true
       end
-      
-      item[:title] = item_element.xpath('title').text
-
-      uri = URI.parse(item_url) rescue nil
-      if uri
-        domain = uri.host
-        domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.]+)$/
-        item[:title] << " [#{domain}]" if domain
-      end
-
-      item[:comments_url] = comments_url
-      item[:url] = item_url
-      item[:id] = id
-      item[:updated_at] = Time.now.xmlschema  # TODO: Read from page
-
-      content = @page_cache.get(item_url)
-      content &&= PageCleaner.new.process(item_url, content)
-      item[:content] = content
     end
+  end
+
+  def changed?
+    @changed
   end
 
   attr_reader :items
@@ -257,20 +263,22 @@ class Controller
 
       feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
       feed.add_items_from_document(parser.parse)
-      feed.save
+      if feed.changed? or (@output_path == '-' or not File.exist?(@output_path))
+        feed.save
 
-      Tempfile.open("feed") do |tempfile|
-        generator = FeedGenerator.new(url, tempfile, @page_cache)
-        generator.generate(feed)
-        if @output_path == '-'
-          tempfile.seek(0)
-          $stdout << tempfile.read
-        else
-          tempfile.close
-          original_mask = File.stat(@output_path).mode rescue nil
-          FileUtils.rm_f(@output_path)
-          FileUtils.mv(tempfile.path, @output_path)
-          FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
+        Tempfile.open("feed") do |tempfile|
+          generator = FeedGenerator.new(url, tempfile, @page_cache)
+          generator.generate(feed)
+          if @output_path == '-'
+            tempfile.seek(0)
+            $stdout << tempfile.read
+          else
+            tempfile.close
+            original_mask = File.stat(@output_path).mode rescue nil
+            FileUtils.rm_f(@output_path)
+            FileUtils.mv(tempfile.path, @output_path)
+            FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
+          end
         end
       end
     end
