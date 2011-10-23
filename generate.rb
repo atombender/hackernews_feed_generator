@@ -29,7 +29,7 @@ USER_AGENT = "hackernews_feed_generator/#{APP_VERSION} (https://github.com/alexs
 
 class FeedParser
   def initialize(url)
-    @url =url
+    @url = url
   end
 
   def parse
@@ -54,29 +54,31 @@ class PageCache
 
   def get(url, &block)
     content = nil
-    file_name = File.join(@directory, Digest::SHA1.hexdigest(url))
-    if File.exist?(file_name)
-      $stderr.puts "[cached] #{url}"
-      content = File.read(file_name)
-    else
-      $stderr.puts " [fetch] #{url}"
-      begin
-        client = HTTPClient.new(nil, USER_AGENT)
-        client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
-        client.connect_timeout = 10
-        client.send_timeout = 30
-        client.receive_timeout = 30
-
-        response = client.get(url)
-      rescue Exception => e
-        $stderr.puts "Error fetching URL <#{url}>: #{e.class}: #{e}"
-        File.open(file_name, "w") { |f| f << '' }
+    unless url =~ %r{http://news\.ycombinator\.com\/item\?}
+      file_name = File.join(@directory, Digest::SHA1.hexdigest(url))
+      if File.exist?(file_name)
+        $stderr.puts "[cached] #{url}"
+        content = File.read(file_name)
       else
-        if response.status == 200
-          content = response.body
-          temp_file_name = "#{file_name}.new"
-          File.open(temp_file_name, "w") { |f| f << content }
-          FileUtils.mv(temp_file_name, file_name)
+        $stderr.puts " [fetch] #{url}"
+        begin
+          client = HTTPClient.new(nil, USER_AGENT)
+          client.ssl_config.verify_mode = OpenSSL::SSL::VERIFY_NONE
+          client.connect_timeout = 10
+          client.send_timeout = 30
+          client.receive_timeout = 30
+
+          response = client.get(url)
+        rescue Exception => e
+          $stderr.puts "Error fetching URL <#{url}>: #{e.class}: #{e}"
+          File.open(file_name, "w") { |f| f << '' }
+        else
+          if response.status == 200
+            content = response.body
+            temp_file_name = "#{file_name}.new"
+            File.open(temp_file_name, "w") { |f| f << content }
+            FileUtils.mv(temp_file_name, file_name)
+          end
         end
       end
     end
@@ -145,14 +147,6 @@ class Feed
       unless item
         item = {}
         item[:title] = item_element.xpath('title').text
-
-        uri = URI.parse(item_url) rescue nil
-        if uri
-          domain = uri.host
-          domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.]+)$/
-          item[:title] << " [#{domain}]" if domain
-        end
-
         item[:comments_url] = comments_url
         item[:url] = item_url
         item[:id] = id
@@ -205,13 +199,32 @@ class FeedGenerator
     xml.instruct!
     xml.feed :xmlns => 'http://www.w3.org/2005/Atom' do  
       xml.title 'Hacker News'
-      xml.link :rel => :self, :href => @url
-      xml.link :rel => :alternate, :href => 'http://news.ycombinator.com/'
+      xml.id @url
+      xml.link :rel => :self, :type => 'application/xml', :href => @url
+      xml.link :rel => :alternate, :type => 'text/html', :href => 'http://news.ycombinator.com/'
+      if feed.items.any?
+        xml.updated feed.items.map { |item| item[:updated_at] }.max
+      else
+        xml.updated Time.now.xmlschema
+      end
       feed.items.each do |item|
         xml.entry do
-          xml.title item[:title]
+          title = "#{item[:title]}"
+          uri = URI.parse(item[:url]) rescue nil
+          if uri
+            domain = uri.host
+            domain = $1 if domain =~ /(?:^|\.)([^.]+\.[^.]+)$/
+            title = [title, "[#{domain}]"].join(' ') if domain and title !~ /\[#{Regexp.escape(domain)}/
+          else
+            domain = nil
+          end
+
+          xml.title title
           xml.link :rel => :alternate, :href => item[:url], :type => "text/html"
           xml.id item[:id]
+          xml.author do
+            xml.name "Hacker News"
+          end
           xml.updated item[:updated_at]
           xml.content :type => :html do
             body = '<div>'
@@ -236,7 +249,7 @@ class Controller
 
   def run!(argv)
     argv.options do |opts|
-      opts.banner = "Usage: #{File.basename($0)} [OPTIONS] FEED-URL"
+      opts.banner = "Usage: #{File.basename($0)} [OPTIONS] FEED-URL SELF-URL"
       opts.separator ""
       opts.on("-v", "--verbose") do
         verbose = true
@@ -253,32 +266,33 @@ class Controller
       end
       opts.order!
     end
-    if argv.empty?
+    source_url = argv.shift
+    self_url = argv.shift
+    unless source_url and self_url
       abort "No URLs specified."
     end
     @cache_path ||= File.join(ENV['TMP'] || '/tmp', 'hnfeed.cache')
     @page_cache = PageCache.new(@cache_path)
-    argv.each do |url|
-      parser = FeedParser.new(url)
+    
+    parser = FeedParser.new(source_url)
 
-      feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
-      feed.add_items_from_document(parser.parse)
-      if feed.changed? or (@output_path == '-' or not File.exist?(@output_path))
-        feed.save
+    feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
+    feed.add_items_from_document(parser.parse)
+    if feed.changed? or (@output_path == '-' or not File.exist?(@output_path))
+      feed.save
 
-        Tempfile.open("feed") do |tempfile|
-          generator = FeedGenerator.new(url, tempfile, @page_cache)
-          generator.generate(feed)
-          if @output_path == '-'
-            tempfile.seek(0)
-            $stdout << tempfile.read
-          else
-            tempfile.close
-            original_mask = File.stat(@output_path).mode rescue nil
-            FileUtils.rm_f(@output_path)
-            FileUtils.mv(tempfile.path, @output_path)
-            FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
-          end
+      Tempfile.open("feed") do |tempfile|
+        generator = FeedGenerator.new(self_url, tempfile, @page_cache)
+        generator.generate(feed)
+        if @output_path == '-'
+          tempfile.seek(0)
+          $stdout << tempfile.read
+        else
+          tempfile.close
+          original_mask = File.stat(@output_path).mode rescue nil
+          FileUtils.rm_f(@output_path)
+          FileUtils.mv(tempfile.path, @output_path)
+          FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
         end
       end
     end
