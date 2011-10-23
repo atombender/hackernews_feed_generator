@@ -200,7 +200,7 @@ class FeedGenerator
     xml.feed :xmlns => 'http://www.w3.org/2005/Atom' do  
       xml.title 'Hacker News'
       xml.id @url
-      xml.link :rel => :self, :type => 'application/xml', :href => @url
+      xml.link :rel => :self, :type => 'application/atom+xml', :href => @url
       xml.link :rel => :alternate, :type => 'text/html', :href => 'http://news.ycombinator.com/'
       if feed.items.any?
         xml.updated feed.items.map { |item| item[:updated_at] }.max
@@ -221,7 +221,7 @@ class FeedGenerator
 
           xml.title title
           xml.link :rel => :alternate, :href => item[:url], :type => "text/html"
-          xml.id item[:id]
+          xml.id item[:url]
           xml.author do
             xml.name "Hacker News"
           end
