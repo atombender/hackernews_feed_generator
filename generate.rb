@@ -22,6 +22,7 @@ require 'builder'
 require 'time'
 require 'fileutils'
 require 'readability'
+require 'active_support/core_ext/file/atomic'
 
 APP_VERSION = "0.1".freeze
 
@@ -127,7 +128,7 @@ class Feed
   end
 
   def save
-    File.open(@path, 'w') { |f| f << YAML.dump(@items) }
+    File.atomic_write(@path) { |f| f << YAML.dump(@items) }
   end
 
   def garbage_collect
