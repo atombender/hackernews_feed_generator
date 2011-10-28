@@ -219,7 +219,7 @@ class FeedGenerator
 
           id = $1 if item[:comments_url] =~ /id=(\d+)/
           id ||= item[:comments_url]
-          xml.id "tag:hackernews,#{id}"
+          xml.id "tag:purefiction.net,2011:hackernews-#{id}"
           xml.author do
             xml.name "Hacker News"
           end
