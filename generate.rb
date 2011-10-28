@@ -139,18 +139,12 @@ class Feed
     document.xpath('/rss/channel/item').each do |item_element|
       item_url = item_element.xpath('link').text
       comments_url = item_element.xpath('comments').text
-
-      id = $1 if comments_url =~ /id=(\d+)/
-      id ||= comments_url
-      id = "tag,hackernews:#{id}"
-
-      item = @items.select { |item| item[:id] == id }[0]
+      item = @items.select { |item| item[:comments_url] == comments_url }[0]
       unless item
         item = {}
         item[:title] = item_element.xpath('title').text
         item[:comments_url] = comments_url
         item[:url] = item_url
-        item[:id] = id
         item[:updated_at] ||= Time.now.xmlschema  # TODO: Read from page
 
         content = @page_cache.get(item_url)
@@ -222,7 +216,10 @@ class FeedGenerator
 
           xml.title title
           xml.link :rel => :alternate, :href => item[:url], :type => "text/html"
-          xml.id item[:url]
+
+          id = $1 if item[:comments_url] =~ /id=(\d+)/
+          id ||= item[:comments_url]
+          xml.id "tag:hackernews,#{id}"
           xml.author do
             xml.name "Hacker News"
           end
@@ -235,7 +232,7 @@ class FeedGenerator
               body << "<p><em>[Failed to fetch page]</em></p>"
             end
             body << "<hr/><p><a href=\"#{item[:comments_url]}\">[Hacker News discussion]</a></p></div>"
-            xml.text! body
+            xml.cdata! body
           end
         end
       end
@@ -272,29 +269,18 @@ class Controller
     unless source_url and self_url
       abort "No URLs specified."
     end
+    
     @cache_path ||= File.join(ENV['TMP'] || '/tmp', 'hnfeed.cache')
     @page_cache = PageCache.new(@cache_path)
     
-    parser = FeedParser.new(source_url)
-
     feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
-    feed.add_items_from_document(parser.parse)
-    if feed.changed? or (@output_path == '-' or not File.exist?(@output_path))
-      feed.save
+    feed.add_items_from_document(FeedParser.new(source_url).parse)
+    feed.save
 
-      Tempfile.open("feed") do |tempfile|
-        generator = FeedGenerator.new(self_url, tempfile, @page_cache)
+    if feed.changed? or not File.exist?(@output_path)
+      File.atomic_write(@output_path) do |file|
+        generator = FeedGenerator.new(self_url, file, @page_cache)
         generator.generate(feed)
-        if @output_path == '-'
-          tempfile.seek(0)
-          $stdout << tempfile.read
-        else
-          tempfile.close
-          original_mask = File.stat(@output_path).mode rescue nil
-          FileUtils.rm_f(@output_path)
-          FileUtils.mv(tempfile.path, @output_path)
-          FileUtils.chmod(original_mask, @output_path) if original_mask rescue nil
-        end
       end
     end
   end
