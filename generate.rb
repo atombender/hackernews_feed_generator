@@ -23,6 +23,7 @@ require 'time'
 require 'fileutils'
 require 'readability'
 require 'active_support/core_ext/file/atomic'
+require 'json'
 
 APP_VERSION = "0.1".freeze
 
@@ -70,6 +71,8 @@ class PageCache
           client.receive_timeout = 30
 
           response = client.get(url)
+        rescue SignalException
+          raise
         rescue Exception => e
           $stderr.puts "Error fetching URL <#{url}>: #{e.class}: #{e}"
           File.open(file_name, "w") { |f| f << '' }
@@ -84,6 +87,41 @@ class PageCache
       end
     end
     return content
+  end
+end
+
+class ClearReadClient
+  def initialize(url)
+    @url = url
+  end
+
+  def clean
+    $stderr.puts "[clean] #{@url}"
+    begin
+      client = HTTPClient.new(nil, USER_AGENT)
+      client.connect_timeout = 10
+      client.send_timeout = 30
+      client.receive_timeout = 30
+      response = client.get("http://api.thequeue.org/v1/clear?url=#{@url}&format=json")
+    rescue SignalException
+      raise
+    rescue Exception => e
+      $stderr.puts "Error cleaning URL <#{url}>: #{e.class}: #{e}"
+      response = nil
+    end
+    if response and response.status == 200
+      result = JSON.parse(response.body)
+      if result['status'] == 'success'
+        $stderr.puts "[clean OK] #{@url}"
+        return result['item']['description']
+      else
+        $stderr.puts "[clean fail] #{@url}"
+        return '[Clear Read API was not able to process the page]'
+      end
+    else
+      $stderr.puts "[clean error] #{@url}"
+      return '[Error processing with Clear Read API]'
+    end
   end
 end
 
@@ -103,6 +141,8 @@ class PageCleaner
     begin
       document = Nokogiri::HTML(content)
       return Readability::Document.new(document, base_uri, path).content
+    rescue SignalException
+      raise
     rescue Exception => e
       $stderr.puts "Exception processing document: #{e.class}: #{e}"
       nil
@@ -111,7 +151,8 @@ class PageCleaner
 end
 
 class Feed
-  def initialize(path, page_cache)
+  def initialize(path, page_cache, processor)
+    @processor = processor
     @path = path
     @page_cache = page_cache
     @items = []
@@ -135,9 +176,15 @@ class Feed
     @items.delete_if { |item| Time.parse(item[:updated_at]) < Time.now - 86400 }
   end
 
+  def normalize_url(url)
+    uri = URI.parse(url)
+    uri.fragment = nil
+    uri.to_s
+  end
+
   def add_items_from_document(document)
     document.xpath('/rss/channel/item').each do |item_element|
-      item_url = item_element.xpath('link').text
+      item_url = normalize_url(item_element.xpath('link').text)
       comments_url = item_element.xpath('comments').text
       item = @items.select { |item| item[:comments_url] == comments_url }[0]
       unless item
@@ -147,8 +194,12 @@ class Feed
         item[:url] = item_url
         item[:updated_at] ||= Time.now.xmlschema  # TODO: Read from page
 
-        content = @page_cache.get(item_url)
-        content &&= PageCleaner.new.process(item_url, content)
+        if @processor == :clear_read
+          content = ClearReadClient.new(item_url).clean
+        else
+          content = @page_cache.get(item_url)
+          content &&= PageCleaner.new.process(item_url, content)
+        end
         item[:content] = content
         @items << item
 
@@ -243,6 +294,7 @@ end
 class Controller
   def initialize
     @output_path = '-'
+    @processor = 'readability'
   end
 
   def run!(argv)
@@ -254,6 +306,9 @@ class Controller
       end
       opts.on("-o FILE", "--output FILE", "Write feed to this file.") do |file_name|
         @output_path = file_name
+      end
+      opts.on("-p PROCESSOR", "--processor PROCESSOR", "Specify either 'readability' (default) or 'clear_read' (Clear Read API).") do |processor|
+        @processor = processor
       end
       opts.on("--cache-directory DIR", "Store fetched pages and items in DIR.") do |path|
         @cache_path = path
@@ -273,7 +328,7 @@ class Controller
     @cache_path ||= File.join(ENV['TMP'] || '/tmp', 'hnfeed.cache')
     @page_cache = PageCache.new(@cache_path)
     
-    feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache)
+    feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache, @processor.to_sym)
     feed.add_items_from_document(FeedParser.new(source_url).parse)
     feed.save
 
