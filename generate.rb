@@ -54,7 +54,7 @@ class PageCache
     FileUtils.mkdir_p(@directory)
   end
 
-  def get(url, &block)
+  def get(url)
     content = nil
     unless url =~ %r{http://news\.ycombinator\.com\/item\?}
       file_name = File.join(@directory, Digest::SHA1.hexdigest(url))
@@ -91,45 +91,63 @@ class PageCache
 end
 
 class ClearReadClient
-  def initialize(url)
-    @url = url
+  def initialize(directory)
+    @directory = directory
+    FileUtils.mkdir_p(@directory)
   end
 
-  def clean
-    $stderr.puts "[clean] #{@url}"
-    begin
-      client = HTTPClient.new(nil, USER_AGENT)
-      client.connect_timeout = 10
-      client.send_timeout = 30
-      client.receive_timeout = 30
-      response = client.get("http://api.thequeue.org/v1/clear?url=#{@url}&format=json")
-    rescue SignalException
-      raise
-    rescue Exception => e
-      $stderr.puts "Error cleaning URL <#{url}>: #{e.class}: #{e}"
-      response = nil
-    end
-    if response and response.status == 200
-      result = JSON.parse(response.body)
-      if result['status'] == 'success'
-        $stderr.puts "[clean OK] #{@url}"
-        return result['item']['description']
-      else
-        $stderr.puts "[clean fail] #{@url}"
-        return '[Clear Read API was not able to process the page]'
-      end
+  def get(url)
+    file_name = File.join(@directory, Digest::SHA1.hexdigest(url))
+    if File.exist?(file_name)
+      $stderr.puts "[cached] #{url}"
+      File.read(file_name)
     else
-      $stderr.puts "[clean error] #{@url}"
-      return '[Error processing with Clear Read API]'
+      $stderr.puts "[clean] #{url}"
+      begin
+        client = HTTPClient.new(nil, USER_AGENT)
+        client.connect_timeout = 10
+        client.send_timeout = 30
+        client.receive_timeout = 30
+        response = client.get("http://api.thequeue.org/v1/clear?url=#{url}&format=json")
+      rescue SignalException
+        raise
+      rescue Exception => e
+        $stderr.puts "Error cleaning URL <#{url}>: #{e.class}: #{e}"
+        response = nil
+      end
+      if response and response.status == 200
+        result = JSON.parse(response.body)
+        if result['status'] == 'success'
+          $stderr.puts "[clean OK] #{url}"
+          content = result['item']['description']
+          content.gsub!("&lt;", '<')
+          content.gsub!("&gt;", '>')
+          content.gsub!("&quot;", '"')
+          content.gsub!("&amp;", '&')
+
+          temp_file_name = "#{file_name}.new"
+          File.open(temp_file_name, "w") { |f| f << content }
+          FileUtils.mv(temp_file_name, file_name)
+          return content
+        else
+          $stderr.puts "[clean fail] #{url}"
+          return '[Clear Read API was not able to process the page]'
+        end
+      else
+        $stderr.puts "[clean error] #{url}"
+        return '[Error processing with Clear Read API]'
+      end
     end
   end
 end
 
-class PageCleaner
-  def initialize
+class ReadabilityClient
+  def initialize(cache)
+    @cache = cache
   end
 
-  def process(url, content)
+  def get(url)
+    content = @cache.get(url)
     begin
       base_uri = URI.parse(url)
       base_uri.path = '/'
@@ -193,14 +211,7 @@ class Feed
         item[:comments_url] = comments_url
         item[:url] = item_url
         item[:updated_at] ||= Time.now.xmlschema  # TODO: Read from page
-
-        if @processor == :clear_read
-          content = ClearReadClient.new(item_url).clean
-        else
-          content = @page_cache.get(item_url)
-          content &&= PageCleaner.new.process(item_url, content)
-        end
-        item[:content] = content
+        item[:content] = @processor.get(item_url)
         @items << item
 
         @changed = true
@@ -294,7 +305,7 @@ end
 class Controller
   def initialize
     @output_path = '-'
-    @processor = 'readability'
+    @processor_type = 'readability'
   end
 
   def run!(argv)
@@ -308,7 +319,7 @@ class Controller
         @output_path = file_name
       end
       opts.on("-p PROCESSOR", "--processor PROCESSOR", "Specify either 'readability' (default) or 'clear_read' (Clear Read API).") do |processor|
-        @processor = processor
+        @processor_type = processor
       end
       opts.on("--cache-directory DIR", "Store fetched pages and items in DIR.") do |path|
         @cache_path = path
@@ -319,6 +330,16 @@ class Controller
       end
       opts.order!
     end
+
+    @page_cache = PageCache.new(@cache_path)
+
+    case @processor_type
+      when 'clear_read'
+        @processor = ClearReadClient.new(@cache_path + '/clear_read')
+      else
+        @processor = ReadabilityClient.new(@page_cache)
+    end
+    
     source_url = argv.shift
     self_url = argv.shift
     unless source_url and self_url
@@ -326,9 +347,8 @@ class Controller
     end
     
     @cache_path ||= File.join(ENV['TMP'] || '/tmp', 'hnfeed.cache')
-    @page_cache = PageCache.new(@cache_path)
     
-    feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache, @processor.to_sym)
+    feed = Feed.new(File.join(@cache_path, 'item_cache.yml'), @page_cache, @processor)
     feed.add_items_from_document(FeedParser.new(source_url).parse)
     feed.save
 
