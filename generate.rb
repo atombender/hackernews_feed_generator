@@ -27,7 +27,7 @@ require 'json'
 
 APP_VERSION = "0.1".freeze
 
-USER_AGENT = "hackernews_feed_generator/#{APP_VERSION} (https://github.com/alexstaubo/hackernews_feed_generator)".freeze
+USER_AGENT = "hackernews_feed_generator/#{APP_VERSION} (+https://github.com/alexstaubo/hackernews_feed_generator)".freeze
 
 class FeedParser
   def initialize(url)
