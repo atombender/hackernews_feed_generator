@@ -25,6 +25,7 @@ require 'readability'
 require 'active_support/core_ext/file/atomic'
 require 'json'
 require 'readability'
+require 'psych'
 
 APP_VERSION = "0.2".freeze
 
@@ -180,14 +181,14 @@ class Feed
   def load
     @items = []
     if File.exist?(@path)
-      @items.concat(YAML.load(File.open(@path)))
+      @items.concat(Psych.load(File.read(@path)))
       garbage_collect
     end
     @changed = false
   end
 
   def save
-    File.atomic_write(@path) { |f| f << YAML.dump(@items) }
+    File.atomic_write(@path) { |f| f << Psych.dump(@items) }
   end
 
   def garbage_collect

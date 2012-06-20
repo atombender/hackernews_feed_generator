@@ -8,6 +8,7 @@ GEM
     httpclient (2.2.1)
     json (1.6.5)
     nokogiri (1.5.0)
+    psych (1.3.3)
     ruby-readability (0.5.3)
       guess_html_encoding (>= 0.0.4)
       nokogiri (>= 1.4.2)
@@ -22,4 +23,5 @@ DEPENDENCIES
   httpclient (~> 2.2.1)
   json
   nokogiri (~> 1.5.0)
+  psych
   ruby-readability
