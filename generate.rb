@@ -306,6 +306,7 @@ class Controller
   def initialize
     @output_path = '-'
     @processor_type = 'readability'
+    @cache_path = '/tmp/hackernewsfeed'
   end
 
   def run!(argv)
