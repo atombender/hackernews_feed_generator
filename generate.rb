@@ -24,8 +24,9 @@ require 'fileutils'
 require 'readability'
 require 'active_support/core_ext/file/atomic'
 require 'json'
+require 'readability'
 
-APP_VERSION = "0.1".freeze
+APP_VERSION = "0.2".freeze
 
 USER_AGENT = "hackernews_feed_generator/#{APP_VERSION} (+https://github.com/alexstaubo/hackernews_feed_generator)".freeze
 
@@ -148,22 +149,21 @@ class ReadabilityClient
 
   def get(url)
     content = @cache.get(url)
-    begin
-      base_uri = URI.parse(url)
-      base_uri.path = '/'
-      path = URI.parse(url).path
-    rescue URI::InvalidURIError
-      base_uri = url
-      path = '/'
-    end
-    begin
-      document = Nokogiri::HTML(content)
-      return Readability::Document.new(document, base_uri, path).content
-    rescue SignalException
-      raise
-    rescue Exception => e
-      $stderr.puts "Exception processing document: #{e.class}: #{e}"
-      nil
+    if content
+      begin
+        return Readability::Document.new(content,
+          :remove_empty_nodes => true,
+          :tags => %w(
+            div p h1 h2 h3 h4 h5 h6 h7 img
+            table ul ol li em i strong b pre code tt
+          )).content
+      rescue SignalException
+        raise
+      rescue Exception => e
+        $stderr.puts "Exception processing document: #{e.class}: #{e}"
+        $stderr.puts caller.join("\n")
+        nil
+      end
     end
   end
 end
