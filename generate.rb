@@ -151,19 +151,23 @@ class ReadabilityClient
   def get(url)
     content = @cache.get(url)
     if content
-      begin
-        return Readability::Document.new(content,
-          :remove_empty_nodes => true,
-          :tags => %w(
-            div p h1 h2 h3 h4 h5 h6 h7 img
-            table ul ol li em i strong b pre code tt
-          )).content
-      rescue SignalException
-        raise
-      rescue Exception => e
-        $stderr.puts "Exception processing document: #{e.class}: #{e}"
-        $stderr.puts caller.join("\n")
-        nil
+      if content =~ /<html/i
+        begin
+          return Readability::Document.new(content,
+            :remove_empty_nodes => true,
+            :tags => %w(
+              div p h1 h2 h3 h4 h5 h6 h7 img
+              table ul ol li em i strong b pre code tt
+            )).content
+        rescue SignalException
+          raise
+        rescue Exception => e
+          $stderr.puts "Exception processing document: #{e.class}: #{e}"
+          $stderr.puts caller.join("\n")
+          nil
+        end
+      else
+        return '[Non-HTML content]'
       end
     end
   end
