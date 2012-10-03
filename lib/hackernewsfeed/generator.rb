@@ -33,7 +33,7 @@ module Hackernewsfeed
         xml.title 'Hacker News'
         xml.id @url
         xml.link :rel => :self, :type => 'application/atom+xml', :href => @url
-        xml.link :rel => :alternate, :type => 'text/html', :href => 'http://news.ycombinator.com/'
+        xml.link :rel => :alternate, :type => 'text/html', :href => 'http://purefiction.net/hackernewsfeed/'
         if feed.items.any?
           xml.updated feed.items.map { |item| item[:updated_at] }.max
         else
